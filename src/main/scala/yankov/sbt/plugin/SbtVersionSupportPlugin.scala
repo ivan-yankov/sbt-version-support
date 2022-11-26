@@ -5,10 +5,44 @@ import sbt.{Def, *}
 import java.nio.file.{Files, Paths}
 
 object SbtVersionSupportPlugin extends AutoPlugin {
+  private val latest = "latest"
+
+  case class Version(major: Int, minor: Int) {
+    def incMajor: Version = Version(major + 1, 0)
+
+    def incMinor: Version = Version(major, minor + 1)
+  }
+
+  def writeVersion(fileName: String, version: String): Unit = Files.writeString(Paths.get(fileName), version + "\n")
+
+  def loadVersion(fileName: String): String = Files.readString(Paths.get(fileName)).trim
+
+  def parseVersion(s: String): Either[String, Version] = {
+    if (latest.equals(s)) Left(latest)
+    else {
+      try {
+        val v = s.split(".")
+        Right(Version(v(0).toInt, v(1).toInt))
+      } catch {
+        case _: Exception => Right(Version(1, 0))
+      }
+    }
+  }
+
+  def printVersion(version: Version): String = version.major + "." + version.minor
+
+  def incVersion(fileName: String, major: Boolean): Unit = {
+    parseVersion(loadVersion(fileName)) match {
+      case Left(value) => writeVersion(fileName, value)
+      case Right(value) if major => writeVersion(fileName, printVersion(value.incMajor))
+      case Right(value) => writeVersion(fileName, printVersion(value.incMinor))
+    }
+  }
+
   object autoImport {
-    val incrementVersion = taskKey[Unit]("increment version")
+    val incrementMajorVersion = taskKey[Unit]("increment major version")
+    val incrementMinorVersion = taskKey[Unit]("increment minor version")
     val versionFile = settingKey[String]("version file")
-    val increaseVersion = settingKey[String => String]("increment version implementation")
     val readVersion = settingKey[() => String]("read current version")
   }
 
@@ -17,18 +51,16 @@ object SbtVersionSupportPlugin extends AutoPlugin {
   private val defaultSettings: Seq[Def.Setting[?]] = Seq(
     versionFile := "version.txt",
 
-    increaseVersion := {
-      version => (version.toInt + 1).toString
-    },
-
     readVersion := {
-      Files.readString(Paths.get(versionFile.value)).trim
+      () => loadVersion(versionFile.value)
     },
 
-    incrementVersion := {
-      def writeVersion(v: String): Unit = Files.writeString(Paths.get(versionFile.value), v + "\n")
+    incrementMajorVersion := {
+      incVersion(versionFile.value, major = true)
+    },
 
-      writeVersion(increaseVersion.value(readVersion.value()))
+    incrementMinorVersion := {
+      incVersion(versionFile.value, major = false)
     }
   )
 
